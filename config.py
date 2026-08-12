@@ -17,6 +17,14 @@ DICE_SIDES = 6             # 戦闘判定に使うダイスの面数(1d6)
 
 DEFAULT_ENCHANT_CHOICES = 3  # エンチャント選択肢数の既定値
 
+# ---- スピリット（墓地の再出現） ----
+SPIRIT_APPEAR_RATE = 0.40  # その層の墓地から1体選び、出現する確率
+SPIRIT_POW_BONUS = 1       # 出現時のPOW上昇（そのラン中永続）
+
+# ---- 永続化ファイル ----
+GRAVEYARD_FILE = "graveyard.json"  # 墓地（層ごとにスピリットを保持）
+RUNS_CSV_FILE = "runs.csv"         # 1ラン1行の記録
+
 # ---- 層ごとの数値 ----
 # キーは層番号(1始まり)。target=目標値, fail_damage=失敗時ダメージ。
 LAYERS = {

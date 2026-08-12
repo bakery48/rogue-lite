@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# 実行時に生成されるデータ（ソースではない）
+graveyard.json
+runs.csv
