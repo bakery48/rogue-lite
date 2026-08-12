@@ -40,7 +40,7 @@ func _ready() -> void:
 
 	graveyard = _load_graveyard()
 
-	log_line("撤退判断プロトタイプ v0.4（Godot / カード戦闘 B1）")
+	log_line("撤退判断プロトタイプ v0.5（Godot / 分岐マップ・パッシブ・職業・スピリット）")
 	await run_game()
 
 
@@ -142,6 +142,7 @@ func create_adventurer() -> Dictionary:
 	var job = Cfg.JOBS[idx]
 
 	var max_hp = Cfg.INITIAL_HP + job.hp_mod + personality.hp_bonus
+	log_line("  → %s（特性：%s）" % [job.name, job.trait])
 	return {
 		"personality": personality,
 		"job": job,
@@ -150,7 +151,14 @@ func create_adventurer() -> Dictionary:
 		"hp": max_hp,
 		"max_hp": max_hp,
 		"pow": Cfg.INITIAL_POW + job.pow_mod + personality.pow_bonus,
-		"deck": Cfg.STARTING_DECK.duplicate(),  # ランを通して持つデッキ（B1は職業共通）
+		# デッキとカード定義（スピリットで動的に増える）
+		"deck": job.deck.duplicate(),
+		"card_defs": Cfg.CARDS.duplicate(true),
+		# 累積する戦闘ボーナス（職業特性＋パッシブ）
+		"block_bonus": int(job.block_bonus),
+		"attack_bonus": int(job.attack_bonus),
+		"draw_bonus": int(job.draw_bonus),
+		"energy_bonus": int(job.energy_bonus),
 	}
 
 
@@ -158,30 +166,29 @@ func create_adventurer() -> Dictionary:
 # 戦闘解決（カード制）
 # ---------------------------------------------------------------------------
 
-func resolve_layer(adv: Dictionary, layer_num: int) -> bool:
-	# 1層＝1戦闘（B1）。戻り値: 全滅したら false、敵を倒したら true。
-	var edef = Cfg.LAYER_ENEMIES[layer_num]
-	var enemy = {"name": edef.name, "hp": edef.hp, "attacks": edef.attacks, "turn": 0}
-
-	# 戦闘中だけ使う一時状態
+func resolve_battle(adv: Dictionary, enemy: Dictionary) -> bool:
+	# カード戦闘。戻り値: 全滅したら false、敵を倒したら true。
+	# enemy は {name, hp, attacks, turn} の辞書（雑魚もボスも共通）。
 	var draw_pile: Array = adv.deck.duplicate()
 	draw_pile.shuffle()
 	var hand: Array = []
 	var discard: Array = []
 	var block := 0
 	var energy := 0
+	var hand_size = Cfg.HAND_SIZE + adv.draw_bonus
+	var energy_max = Cfg.ENERGY_PER_TURN + adv.energy_bonus
 
 	log_line("\n― 戦闘：%s（HP %d） ―" % [enemy.name, enemy.hp])
 
 	while true:
 		# ターン開始：防御リセット、エネルギー回復、手札を引く
 		block = 0
-		energy = Cfg.ENERGY_PER_TURN
-		_draw_cards(draw_pile, hand, discard, Cfg.HAND_SIZE - hand.size())
+		energy = energy_max
+		_draw_cards(adv, draw_pile, hand, discard, hand_size - hand.size())
 
 		# プレイヤーのターン
 		while true:
-			_update_combat_status(adv, enemy, block, energy, draw_pile, discard)
+			_update_combat_status(adv, enemy, block, energy, energy_max, draw_pile, discard)
 			var labels := []
 			for card_name in hand:
 				labels.append(_card_label(adv, card_name))
@@ -192,7 +199,7 @@ func resolve_layer(adv: Dictionary, layer_num: int) -> bool:
 				break  # ターン終了
 
 			var cn: String = hand[idx]
-			var c = Cfg.CARDS[cn]
+			var c = adv.card_defs[cn]
 			if c.cost > energy:
 				log_line("  （エネルギー不足：%s は使えない）" % cn)
 				continue
@@ -200,14 +207,15 @@ func resolve_layer(adv: Dictionary, layer_num: int) -> bool:
 			hand.remove_at(idx)
 			match c.type:
 				"attack":
-					var dmg = adv.pow + c.value
+					var dmg = adv.pow + c.value + adv.attack_bonus
 					enemy.hp -= dmg
 					log_line("  ▶ %s：%d ダメージ（敵HP %d）" % [cn, dmg, max(enemy.hp, 0)])
 				"block":
-					block += c.value
-					log_line("  ▶ %s：防御 +%d（防御 %d）" % [cn, c.value, block])
+					var b = c.value + adv.block_bonus
+					block += b
+					log_line("  ▶ %s：防御 +%d（防御 %d）" % [cn, b, block])
 				"draw":
-					var got = _draw_cards(draw_pile, hand, discard, c.value)
+					var got = _draw_cards(adv, draw_pile, hand, discard, c.value)
 					log_line("  ▶ %s：%d枚引いた" % [cn, got])
 			discard.append(cn)
 			if enemy.hp <= 0:
@@ -231,7 +239,7 @@ func resolve_layer(adv: Dictionary, layer_num: int) -> bool:
 	return false  # 到達しない（while true）。型解決のための保険。
 
 
-func _draw_cards(draw_pile: Array, hand: Array, discard: Array, n: int) -> int:
+func _draw_cards(adv: Dictionary, draw_pile: Array, hand: Array, discard: Array, n: int) -> int:
 	# 山札から n 枚 hand へ。尽きたら捨札を再シャッフルして山札に戻す。
 	var got := 0
 	for _i in range(n):
@@ -247,52 +255,128 @@ func _draw_cards(draw_pile: Array, hand: Array, discard: Array, n: int) -> int:
 
 
 func _card_label(adv: Dictionary, card_name: String) -> String:
-	var c = Cfg.CARDS[card_name]
+	var c = adv.card_defs[card_name]
 	var desc := ""
 	match c.type:
 		"attack":
-			desc = "攻撃 %d" % (adv.pow + c.value)
+			desc = "攻撃 %d" % (adv.pow + c.value + adv.attack_bonus)
 		"block":
-			desc = "防御 %d" % c.value
+			desc = "防御 %d" % (c.value + adv.block_bonus)
 		"draw":
 			desc = "%d枚引く" % c.value
+	if c.get("spirit", false):
+		return "《%s》(c%d) %s" % [card_name, c.cost, desc]
 	return "%s(c%d) %s" % [card_name, c.cost, desc]
 
 
 func _update_combat_status(adv: Dictionary, enemy: Dictionary,
-		block: int, energy: int, draw_pile: Array, discard: Array) -> void:
+		block: int, energy: int, energy_max: int, draw_pile: Array, discard: Array) -> void:
 	var intent = enemy.attacks[enemy.turn % enemy.attacks.size()]
-	combat_label.text = "敵 %s HP %d  ▶次の攻撃 %d    ｜    HP %d  防御 %d  ⚡%d/%d  （山%d/捨%d）" % [
+	combat_label.text = "敵 %s HP %d  ▶次の攻撃 %d    ｜    HP %d  防御 %d  E%d/%d  （山%d/捨%d）" % [
 		enemy.name, max(enemy.hp, 0), intent,
-		adv.hp, block, energy, Cfg.ENERGY_PER_TURN,
+		adv.hp, block, energy, energy_max,
 		draw_pile.size(), discard.size()]
 
 
 # ---------------------------------------------------------------------------
-# エンチャント
+# 層の分岐マップ（B2）
 # ---------------------------------------------------------------------------
 
-func choose_enchant(adv: Dictionary, layer_num: int) -> void:
-	var n = min(adv.personality.enchant_choices, Cfg.ENCHANTMENTS.size())
-	var pool = Cfg.ENCHANTMENTS.duplicate()
+func run_layer_map(adv: Dictionary, layer_num: int) -> bool:
+	# 1層＝ACTIONS_PER_LAYER個のアクション。最後はボス戦。
+	# 戻り値: 全滅したら false、層を踏破したら true。
+	var last = Cfg.ACTIONS_PER_LAYER
+	for step in range(1, last + 1):
+		if step == last:
+			# 最後のアクション＝層のボス
+			var edef = Cfg.LAYER_ENEMIES[layer_num]
+			var boss = {"name": edef.name, "hp": edef.hp,
+				"attacks": edef.attacks, "turn": 0}
+			log_line("\n【%d/%d】ボス出現：%s" % [step, last, boss.name])
+			if not await resolve_battle(adv, boss):
+				return false
+		else:
+			# 分岐：1〜3個の行き先から選ぶ
+			var nodes = _generate_nodes()
+			var labels := []
+			for t in nodes:
+				labels.append(_node_label(t))
+			log_line("\n【%d/%d】分かれ道（%d択）" % [step, last, nodes.size()])
+			var idx = await present_choices("進む先を選ぶ", labels)
+			if not await _resolve_node(adv, nodes[idx], layer_num):
+				return false
+	return true
+
+
+func _generate_nodes() -> Array:
+	# 4種から1〜3個を重複なしで提示（1個なら強制、3個なら選択の幅が広い）。
+	var types = ["battle", "rest", "altar", "explore"]
+	types.shuffle()
+	var count = randi_range(1, 3)
+	return types.slice(0, count)
+
+
+func _node_label(t: String) -> String:
+	match t:
+		"battle":  return "戦闘（雑魚と戦う）"
+		"rest":    return "休息（HP+%d）" % Cfg.REST_HEAL
+		"altar":   return "祭壇（パッシブ獲得）"
+		"explore": return "探索（スピリットを探す）"
+	return t
+
+
+func _resolve_node(adv: Dictionary, t: String, layer_num: int) -> bool:
+	# 戻り値: 全滅したら false。それ以外 true。
+	match t:
+		"battle":
+			var enemy = _make_minor_enemy(layer_num)
+			return await resolve_battle(adv, enemy)
+		"rest":
+			var before = adv.hp
+			adv.hp = min(adv.hp + Cfg.REST_HEAL, adv.max_hp)
+			log_line("  休息した。HP %d → %d" % [before, adv.hp])
+			update_header(adv)
+		"altar":
+			await choose_passive(adv)
+		"explore":
+			_find_spirit_card(adv, layer_num)
+	return true
+
+
+func _make_minor_enemy(layer_num: int) -> Dictionary:
+	var arch = Cfg.MINOR_ARCHETYPES[randi() % Cfg.MINOR_ARCHETYPES.size()]
+	var hp = arch.hp + layer_num * Cfg.MINOR_HP_PER_LAYER
+	var atk = arch.atk + (layer_num - 1) * Cfg.MINOR_ATK_PER_LAYER
+	return {"name": arch.name, "hp": hp,
+		"attacks": [atk, atk + 1, atk], "turn": 0}
+
+
+# ---------------------------------------------------------------------------
+# 祭壇：パッシブ獲得（B3）
+# ---------------------------------------------------------------------------
+
+func choose_passive(adv: Dictionary) -> void:
+	var n = min(adv.personality.enchant_choices, Cfg.PASSIVES.size())
+	var pool = Cfg.PASSIVES.duplicate()
 	pool.shuffle()
 	var options = pool.slice(0, n)
 
-	log_line("\n--- エンチャント選択（%d択） ---" % n)
+	log_line("  --- 祭壇：パッシブ選択（%d択） ---" % n)
 	var labels := []
 	for e in options:
-		labels.append("%s（POW +%d）" % [e.adjective, e.pow])
-	var idx = await present_choices("エンチャントを選んでください", labels)
+		labels.append("%s（%s）" % [e.adjective, e.desc])
+	var idx = await present_choices("祭壇：パッシブを選ぶ", labels)
 	var chosen = options[idx]
 
-	adv.adjective = chosen.adjective  # 形容詞は常に上書き
-
-	var interval = adv.personality.pow_gain_interval
-	if layer_num % interval == 0:
-		adv.pow += chosen.pow
-		log_line("  → %s（POW +%d）" % [display_name(adv), chosen.pow])
-	else:
-		log_line("  → %s（この層ではPOWは上がらない）" % display_name(adv))
+	# 通り名（形容詞）は常に最新1つで上書き。効果は field ごとに累積。
+	adv.adjective = chosen.adjective
+	match chosen.field:
+		"pow":    adv.pow += chosen.amount
+		"block":  adv.block_bonus += chosen.amount
+		"attack": adv.attack_bonus += chosen.amount
+		"energy": adv.energy_bonus += chosen.amount
+		"draw":   adv.draw_bonus += chosen.amount
+	log_line("  → %s（%s）" % [display_name(adv), chosen.desc])
 	update_header(adv)
 
 
@@ -323,26 +407,50 @@ func ask_retreat(adv: Dictionary, current_layer: int) -> bool:
 # ---------------------------------------------------------------------------
 
 func try_spirit_appearance(adv: Dictionary, layer: int) -> bool:
-	# その層の墓地から1体だけ抽選し、確率で出現。何体増えても出現は1体まで。
+	# 層開始時、その層の墓地から1体だけ抽選し、確率で加勢（スピリットカード化）。
 	var key = str(layer)
 	if not graveyard.has(key) or graveyard[key].is_empty():
 		return false
-	var cards = graveyard[key]
-	var card = cards[randi() % cards.size()]
 	if randf() >= Cfg.SPIRIT_APPEAR_RATE:
 		return false
-	adv.pow += Cfg.SPIRIT_POW_BONUS
-	log_line("◆ %sが加勢した（POW +%d）" % [card.display_name, Cfg.SPIRIT_POW_BONUS])
+	var cards = graveyard[key]
+	var card = cards[randi() % cards.size()]
+	log_line("\n◆ 過去の魂が加勢した：%s" % card.get("display_name", "さまよう魂"))
+	_add_spirit_card(adv, card.get("name", "魂"), Cfg.SPIRIT_CARD_VALUE)
 	return true
 
 
+func _find_spirit_card(adv: Dictionary, layer: int) -> void:
+	# 探索ノード：墓地に縁があればその魂、無ければ「さまよう魂」をデッキへ。
+	var key = str(layer)
+	var label := "さまよう魂"
+	if graveyard.has(key) and not graveyard[key].is_empty():
+		var cards = graveyard[key]
+		var card = cards[randi() % cards.size()]
+		label = card.get("name", "さまよう魂")
+		log_line("  探索で魂を見つけた：%s" % card.get("display_name", label))
+	else:
+		log_line("  探索で さまよう魂 を見つけた")
+	_add_spirit_card(adv, label, Cfg.SPIRIT_CARD_VALUE)
+
+
+func _add_spirit_card(adv: Dictionary, spirit_name: String, value: int) -> void:
+	# スピリットカードをデッキとカード定義に加える（そのラン限定）。
+	adv.card_defs[spirit_name] = {
+		"cost": 1, "type": "attack", "value": value, "spirit": true}
+	adv.deck.append(spirit_name)
+	log_line("  → スピリットカード《%s》がデッキに加わった（攻撃 POW+%d）" % [spirit_name, value])
+
+
 func record_spirit(adv: Dictionary, layer: int) -> void:
-	# 撤退・クリア時に冒険者をスピリットカードとして墓地に追加（上限なし）。
+	# 撤退・クリア時に冒険者をスピリットとして墓地に追加（上限なし）。
 	var key = str(layer)
 	if not graveyard.has(key):
 		graveyard[key] = []
 	graveyard[key].append({
 		"display_name": display_name(adv),
+		"name": adv.name,
+		"pow": adv.pow,
 		"layer": layer,
 		"job": adv.job.name,
 	})
@@ -364,12 +472,12 @@ func run_game() -> void:
 		log_line("\n\n########## 第%d層 ##########" % layer_num)
 		update_header(adv)
 
-		# a. スピリット抽選（その層の墓地から1体だけ）
+		# a. スピリット抽選（その層の墓地から1体だけ、カード化して加勢）
 		if try_spirit_appearance(adv, layer_num):
 			spirit_appearances += 1
 
-		# b. 戦闘を解決（カード制）
-		var survived = await resolve_layer(adv, layer_num)
+		# b. 7アクションの分岐マップ（戦闘/休息/祭壇/探索 → 最後はボス）
+		var survived = await run_layer_map(adv, layer_num)
 		update_header(adv)
 		if not survived:
 			ending = "death"
@@ -377,12 +485,9 @@ func run_game() -> void:
 
 		# d. HP回復
 		adv.hp += Cfg.HP_RECOVER_PER_LAYER
-		log_line("\n第%d層突破。HP +%d → 残HP %d" % [
+		log_line("\n第%d層 踏破。HP +%d → 残HP %d" % [
 			layer_num, Cfg.HP_RECOVER_PER_LAYER, adv.hp])
 		update_header(adv)
-
-		# e. エンチャント
-		await choose_enchant(adv, layer_num)
 
 		# 最終層クリアなら自動的にラン終了
 		if layer_num == Cfg.MAX_LAYER:
