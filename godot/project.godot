@@ -1,0 +1,15 @@
+; Godot プロジェクト設定ファイル
+; 撤退判断プロトタイプ（最小移植）
+
+config_version=5
+
+[application]
+
+config/name="撤退判断プロトタイプ"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.2")
+
+[display]
+
+window/size/viewport_width=920
+window/size/viewport_height=680

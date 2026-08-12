@@ -4,3 +4,8 @@ __pycache__/
 # 実行時に生成されるデータ（ソースではない）
 graveyard.json
 runs.csv
+
+# Godot エディタが生成するキャッシュ/エクスポート
+.godot/
+export_presets.cfg
+*.translation
