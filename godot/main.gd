@@ -14,6 +14,7 @@ const CSV_HEADER := "run_id,seed,性格,職業,名前,最終形容詞,最終表�
 
 # --- UI ノード ---
 var header_label: Label
+var combat_label: Label
 var log_label: RichTextLabel
 var prompt_label: Label
 var choice_box: HBoxContainer
@@ -39,7 +40,7 @@ func _ready() -> void:
 
 	graveyard = _load_graveyard()
 
-	log_line("撤退判断プロトタイプ v0.3（Godot / フェーズ2相当）")
+	log_line("撤退判断プロトタイプ v0.4（Godot / カード戦闘 B1）")
 	await run_game()
 
 
@@ -63,6 +64,11 @@ func _build_ui() -> void:
 	header_label = Label.new()
 	header_label.add_theme_font_size_override("font_size", 22)
 	vbox.add_child(header_label)
+
+	# 戦闘中の敵/自分の状態（戦闘外では空）
+	combat_label = Label.new()
+	combat_label.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(combat_label)
 
 	vbox.add_child(HSeparator.new())
 
@@ -144,45 +150,122 @@ func create_adventurer() -> Dictionary:
 		"hp": max_hp,
 		"max_hp": max_hp,
 		"pow": Cfg.INITIAL_POW + job.pow_mod + personality.pow_bonus,
+		"deck": Cfg.STARTING_DECK.duplicate(),  # ランを通して持つデッキ（B1は職業共通）
 	}
 
 
 # ---------------------------------------------------------------------------
-# 戦闘解決
+# 戦闘解決（カード制）
 # ---------------------------------------------------------------------------
 
 func resolve_layer(adv: Dictionary, layer_num: int) -> bool:
-	# 戻り値: 全滅したら false、層を突破したら true。
-	var layer = Cfg.LAYERS[layer_num]
-	var target = layer.target
-	var fail_damage = layer.fail_damage + adv.personality.fail_damage_bonus
-	var reroll = adv.personality.reroll_on_fail
+	# 1層＝1戦闘（B1）。戻り値: 全滅したら false、敵を倒したら true。
+	var edef = Cfg.LAYER_ENEMIES[layer_num]
+	var enemy = {"name": edef.name, "hp": edef.hp, "attacks": edef.attacks, "turn": 0}
 
-	var wins := 0
-	while wins < Cfg.BATTLES_PER_LAYER:
-		var roll = randi_range(1, Cfg.DICE_SIDES)
-		var total = roll + adv.pow
-		var detail = "判定 %d+%d=%d vs %d" % [roll, adv.pow, total, target]
-		var success = total >= target
+	# 戦闘中だけ使う一時状態
+	var draw_pile: Array = adv.deck.duplicate()
+	draw_pile.shuffle()
+	var hand: Array = []
+	var discard: Array = []
+	var block := 0
+	var energy := 0
 
-		# 無謀な：失敗しても1回だけ再判定
-		if not success and reroll:
-			var r2 = randi_range(1, Cfg.DICE_SIDES)
-			var t2 = r2 + adv.pow
-			detail += " → 再判定 %d+%d=%d" % [r2, adv.pow, t2]
-			if t2 >= target:
-				success = true
+	log_line("\n― 戦闘：%s（HP %d） ―" % [enemy.name, enemy.hp])
 
-		if success:
-			wins += 1
-			log_line("  %s → 勝利(%d/%d)  残HP %d" % [
-				detail, wins, Cfg.BATTLES_PER_LAYER, adv.hp])
-		else:
-			adv.hp -= fail_damage
-			log_line("  %s → 失敗  -%dHP  残HP %d" % [detail, fail_damage, adv.hp])
-			if adv.hp <= 0:
-				return false
-	return true
+	while true:
+		# ターン開始：防御リセット、エネルギー回復、手札を引く
+		block = 0
+		energy = Cfg.ENERGY_PER_TURN
+		_draw_cards(draw_pile, hand, discard, Cfg.HAND_SIZE - hand.size())
+
+		# プレイヤーのターン
+		while true:
+			_update_combat_status(adv, enemy, block, energy, draw_pile, discard)
+			var labels := []
+			for card_name in hand:
+				labels.append(_card_label(adv, card_name))
+			labels.append("― ターン終了 ―")
+			var idx = await present_choices("カードを使う / ターン終了", labels)
+
+			if idx == hand.size():
+				break  # ターン終了
+
+			var cn: String = hand[idx]
+			var c = Cfg.CARDS[cn]
+			if c.cost > energy:
+				log_line("  （エネルギー不足：%s は使えない）" % cn)
+				continue
+			energy -= c.cost
+			hand.remove_at(idx)
+			match c.type:
+				"attack":
+					var dmg = adv.pow + c.value
+					enemy.hp -= dmg
+					log_line("  ▶ %s：%d ダメージ（敵HP %d）" % [cn, dmg, max(enemy.hp, 0)])
+				"block":
+					block += c.value
+					log_line("  ▶ %s：防御 +%d（防御 %d）" % [cn, c.value, block])
+				"draw":
+					var got = _draw_cards(draw_pile, hand, discard, c.value)
+					log_line("  ▶ %s：%d枚引いた" % [cn, got])
+			discard.append(cn)
+			if enemy.hp <= 0:
+				log_line("  ★ %s を倒した！" % enemy.name)
+				combat_label.text = ""
+				return true
+
+		# ターン終了：手札を捨てて敵の攻撃
+		discard.append_array(hand)
+		hand.clear()
+		var atk = enemy.attacks[enemy.turn % enemy.attacks.size()]
+		var dmg = max(0, atk - block)
+		adv.hp -= dmg
+		log_line("  ◆ %sの攻撃 %d（防御%dで軽減）→ %d ダメージ  残HP %d" % [
+			enemy.name, atk, block, dmg, adv.hp])
+		enemy.turn += 1
+		update_header(adv)
+		if adv.hp <= 0:
+			combat_label.text = ""
+			return false
+	return false  # 到達しない（while true）。型解決のための保険。
+
+
+func _draw_cards(draw_pile: Array, hand: Array, discard: Array, n: int) -> int:
+	# 山札から n 枚 hand へ。尽きたら捨札を再シャッフルして山札に戻す。
+	var got := 0
+	for _i in range(n):
+		if draw_pile.is_empty():
+			if discard.is_empty():
+				break
+			draw_pile.append_array(discard)
+			discard.clear()
+			draw_pile.shuffle()
+		hand.append(draw_pile.pop_back())
+		got += 1
+	return got
+
+
+func _card_label(adv: Dictionary, card_name: String) -> String:
+	var c = Cfg.CARDS[card_name]
+	var desc := ""
+	match c.type:
+		"attack":
+			desc = "攻撃 %d" % (adv.pow + c.value)
+		"block":
+			desc = "防御 %d" % c.value
+		"draw":
+			desc = "%d枚引く" % c.value
+	return "%s(c%d) %s" % [card_name, c.cost, desc]
+
+
+func _update_combat_status(adv: Dictionary, enemy: Dictionary,
+		block: int, energy: int, draw_pile: Array, discard: Array) -> void:
+	var intent = enemy.attacks[enemy.turn % enemy.attacks.size()]
+	combat_label.text = "敵 %s HP %d  ▶次の攻撃 %d    ｜    HP %d  防御 %d  ⚡%d/%d  （山%d/捨%d）" % [
+		enemy.name, max(enemy.hp, 0), intent,
+		adv.hp, block, energy, Cfg.ENERGY_PER_TURN,
+		draw_pile.size(), discard.size()]
 
 
 # ---------------------------------------------------------------------------
@@ -220,13 +303,13 @@ func choose_enchant(adv: Dictionary, layer_num: int) -> void:
 func ask_retreat(adv: Dictionary, current_layer: int) -> bool:
 	# 戻り値: 撤退なら true、続行なら false。
 	var next_layer = current_layer + 1
-	var nxt = Cfg.LAYERS[next_layer]
+	var nxt = Cfg.LAYER_ENEMIES[next_layer]
 
 	log_line("\n" + "-".repeat(40))
 	log_line("★ 撤退 / 続行 の選択（第%d層クリア）" % current_layer)
 	log_line("  現在  ： HP %d / POW %d / 到達 第%d層" % [adv.hp, adv.pow, current_layer])
-	log_line("  次の層： 第%d層  目標値 %d / 失敗ダメージ %d" % [
-		next_layer, nxt.target, nxt.fail_damage + adv.personality.fail_damage_bonus])
+	log_line("  次の層： 第%d層  敵 %s（HP %d / 攻撃 最大%d）" % [
+		next_layer, nxt.name, nxt.hp, nxt.attacks.max()])
 	log_line("  撤退すると記録される表示名： %s" % display_name(adv))
 	log_line("-".repeat(40))
 
@@ -285,8 +368,8 @@ func run_game() -> void:
 		if try_spirit_appearance(adv, layer_num):
 			spirit_appearances += 1
 
-		# b. 戦闘を解決
-		var survived = resolve_layer(adv, layer_num)
+		# b. 戦闘を解決（カード制）
+		var survived = await resolve_layer(adv, layer_num)
 		update_header(adv)
 		if not survived:
 			ending = "death"
