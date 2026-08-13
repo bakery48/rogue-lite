@@ -25,6 +25,7 @@ var seed_value = null   # int または null
 var reset_flag := false
 
 signal choice_selected(index: int)
+signal name_submitted(text: String)
 
 
 func _ready() -> void:
@@ -109,6 +110,27 @@ func present_choices(prompt_text: String, labels: Array) -> int:
 	return idx
 
 
+# テキスト入力欄を出し、決定されるまで待って入力文字列(前後空白除去)を返す。
+func prompt_text_input(prompt_text: String, placeholder: String) -> String:
+	prompt_label.text = prompt_text
+	var line := LineEdit.new()
+	line.placeholder_text = placeholder
+	line.max_length = 12
+	line.custom_minimum_size = Vector2(240, 0)
+	choice_box.add_child(line)
+	var btn := Button.new()
+	btn.text = "決定"
+	choice_box.add_child(btn)
+	line.text_submitted.connect(func(t): name_submitted.emit(t))
+	btn.pressed.connect(func(): name_submitted.emit(line.text))
+	line.grab_focus()
+	var text: String = await name_submitted
+	for c in choice_box.get_children():
+		c.queue_free()
+	prompt_label.text = ""
+	return text.strip_edges()
+
+
 # ---------------------------------------------------------------------------
 # 表示名
 # ---------------------------------------------------------------------------
@@ -127,12 +149,36 @@ func display_name(adv: Dictionary) -> String:
 # 冒険者の生成
 # ---------------------------------------------------------------------------
 
+func choose_name() -> String:
+	# 名前を決める：ランダム候補から選ぶ / 引き直す / 自分で入力する。
+	while true:
+		var pool = Cfg.NAMES.duplicate()
+		pool.shuffle()
+		var candidates = pool.slice(0, 4)
+		var labels = candidates.duplicate()
+		labels.append("自分で入力する")
+		labels.append("候補を引き直す")
+		var idx = await present_choices("名前を選ぶ（候補から / 自分で入力）", labels)
+
+		if idx < candidates.size():
+			return candidates[idx]
+		elif idx == candidates.size():
+			var typed = await prompt_text_input("冒険者の名前を入力してください", "名前を入力…")
+			if typed != "":
+				return typed
+			log_line("（名前が空でした。もう一度選んでください）")
+		# 「引き直す」または空入力 → ループして再提示
+	return Cfg.NAMES[0]  # 到達しない（while true）。型解決のための保険。
+
+
 func create_adventurer() -> Dictionary:
 	var personality = Cfg.PERSONALITIES[randi() % Cfg.PERSONALITIES.size()]
-	var adv_name = Cfg.NAMES[randi() % Cfg.NAMES.size()]
 
 	log_line("\n--- 冒険者の生成 ---")
 	log_line("性格（ランダム確定）：%s" % personality.name)
+
+	var adv_name = await choose_name()
+	log_line("名前：%s" % adv_name)
 
 	var labels := []
 	for job in Cfg.JOBS:
