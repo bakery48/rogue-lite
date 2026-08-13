@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カード大全</title>
+<style>
+
+:root {
+	--bg: #ECEEE4;
+	--surface: #F7F8F2;
+	--surface-alt: #F0F1E8;
+	--ink: #21261B;
+	--ink-soft: #5B6350;
+	--line: #D6D9C8;
+	--accent: #7A4A9E;
+	--attack: #B23A2E;
+	--block: #2E5F8A;
+	--draw: #2E8A6E;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #14170F;
+		--surface: #1B1F15;
+		--surface-alt: #20241A;
+		--ink: #E7E9DC;
+		--ink-soft: #A3AA93;
+		--line: #333A28;
+		--accent: #C298E8;
+		--attack: #E27568;
+		--block: #79B0E0;
+		--draw: #74CDA3;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #14170F;
+	--surface: #1B1F15;
+	--surface-alt: #20241A;
+	--ink: #E7E9DC;
+	--ink-soft: #A3AA93;
+	--line: #333A28;
+	--accent: #C298E8;
+	--attack: #E27568;
+	--block: #79B0E0;
+	--draw: #74CDA3;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--ink);
+	font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+	line-height: 1.7;
+}
+.page { max-width: 880px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+.masthead { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1.5rem; }
+.eyebrow { margin: 0; font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+h1 { margin: 0; font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif; font-size: clamp(2rem, 5vw, 2.75rem); font-weight: 600; text-wrap: balance; }
+.lede { margin: 0; color: var(--ink-soft); font-size: .95rem; }
+.num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", monospace; }
+nav.toc {
+	position: sticky; top: 0; z-index: 5;
+	display: flex; gap: 1.25rem; flex-wrap: wrap;
+	padding: .75rem 0; margin: 0 0 2.5rem;
+	border-bottom: 1px solid var(--line);
+	background: color-mix(in srgb, var(--bg) 88%, transparent);
+	backdrop-filter: blur(6px);
+}
+nav.toc a { color: var(--ink-soft); text-decoration: none; font-size: .85rem; border-bottom: 1px solid transparent; padding-bottom: .15rem; transition: color .15s, border-color .15s; }
+nav.toc a:hover { color: var(--accent); border-color: var(--accent); }
+nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+section { margin-bottom: 3rem; scroll-margin-top: 4rem; }
+section h2 { display: flex; flex-direction: column; gap: .2rem; font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif; font-size: 1.5rem; font-weight: 600; margin: 0 0 .5rem; padding-left: .9rem; border-left: 3px solid var(--accent); }
+section h2 small { font-family: ui-monospace, "SF Mono", monospace; font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+.note { margin: .25rem 0 1rem; color: var(--ink-soft); font-size: .85rem; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; min-width: 480px; background: var(--surface); }
+thead th { position: sticky; top: 0; background: var(--surface-alt); text-align: left; font-size: .78rem; letter-spacing: .04em; color: var(--ink-soft); font-weight: 600; padding: .65rem .9rem; border-bottom: 1px solid var(--line); }
+tbody td { padding: .6rem .9rem; border-bottom: 1px solid var(--line); font-size: .92rem; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: var(--surface-alt); }
+.chip { display: inline-block; padding: .15rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 600; letter-spacing: .02em; }
+.chip-attack { color: var(--attack); background: color-mix(in srgb, var(--attack) 16%, transparent); }
+.chip-block { color: var(--block); background: color-mix(in srgb, var(--block) 16%, transparent); }
+.chip-draw { color: var(--draw); background: color-mix(in srgb, var(--draw) 16%, transparent); }
+.job-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+.job-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: .6rem; }
+.job-card h3 { margin: 0; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1.15rem; }
+.job-card .trait { margin: 0; font-size: .82rem; color: var(--accent); font-weight: 600; }
+.deck-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
+.deck-list li { display: inline-flex; align-items: center; gap: .3rem; background: var(--surface-alt); border: 1px solid var(--line); border-radius: 8px; padding: .25rem .55rem; font-size: .82rem; }
+.deck-list .count { color: var(--ink-soft); }
+.passive-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .9rem; }
+.passive-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }
+.passive-tile .adj { margin: 0 0 .25rem; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1.05rem; }
+.passive-tile .desc { margin: 0; color: var(--ink-soft); font-size: .85rem; }
+.spirit-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem; font-size: .92rem; }
+.foot { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: .78rem; letter-spacing: .02em; }
+@media (prefers-reduced-motion: reduce) {
+	nav.toc a { transition: none; }
+}
+
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+<p class="eyebrow">Rogue-lite Prototype ・ Card Reference</p>
+<h1>カード大全</h1>
+<p class="lede">カード <span class="num">8</span> 種　・　職業 <span class="num">3</span>　・　パッシブ <span class="num">6</span> 種　｜　毎ターン エネルギー <span class="num">3</span>・手札 <span class="num">5</span> 枚（職業/パッシブで加算）</p>
+</header>
+<nav class="toc">
+<a href="#cards">基本カード</a><a href="#jobs">職業デッキ</a><a href="#passives">パッシブ</a><a href="#spirit">スピリット</a>
+</nav>
+<section id="cards">
+<h2><small>Cards</small>基本カード</h2>
+<p class="note">ダメージ = POW + 表の値（+ 攻撃パッシブ）　／　防御 = 表の値（+ 防御パッシブ）</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>カード</th><th>コスト</th><th>種別</th><th>効果</th></tr></thead>
+<tbody>
+<tr><td>打撃</td><td class="num">1</td><td><span class="chip chip-attack">攻撃</span></td><td class="num">POW+2</td></tr>
+<tr><td>強打</td><td class="num">2</td><td><span class="chip chip-attack">攻撃</span></td><td class="num">POW+5</td></tr>
+<tr><td>守り</td><td class="num">1</td><td><span class="chip chip-block">防御</span></td><td class="num">4</td></tr>
+<tr><td>大盾</td><td class="num">2</td><td><span class="chip chip-block">防御</span></td><td class="num">8</td></tr>
+<tr><td>疾風</td><td class="num">0</td><td><span class="chip chip-draw">ドロー</span></td><td class="num">1枚</td></tr>
+<tr><td>魔弾</td><td class="num">2</td><td><span class="chip chip-attack">攻撃</span></td><td class="num">POW+6</td></tr>
+<tr><td>短剣</td><td class="num">0</td><td><span class="chip chip-attack">攻撃</span></td><td class="num">POW+1</td></tr>
+<tr><td>集中</td><td class="num">1</td><td><span class="chip chip-draw">ドロー</span></td><td class="num">2枚</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="jobs">
+<h2><small>Classes</small>職業別 初期デッキ</h2>
+<div class="job-grid">
+<article class="job-card">
+<h3>戦士</h3>
+<p class="trait">防御カード+2</p>
+<ul class="deck-list">
+<li><span class="chip chip-attack">打撃</span><span class="count">×4</span></li>
+<li><span class="chip chip-attack">強打</span><span class="count">×2</span></li>
+<li><span class="chip chip-block">守り</span><span class="count">×2</span></li>
+<li><span class="chip chip-block">大盾</span><span class="count">×2</span></li>
+</ul>
+</article>
+<article class="job-card">
+<h3>魔法使い</h3>
+<p class="trait">攻撃カード+1</p>
+<ul class="deck-list">
+<li><span class="chip chip-attack">打撃</span><span class="count">×3</span></li>
+<li><span class="chip chip-attack">魔弾</span><span class="count">×2</span></li>
+<li><span class="chip chip-attack">強打</span><span class="count">×1</span></li>
+<li><span class="chip chip-draw">集中</span><span class="count">×1</span></li>
+<li><span class="chip chip-block">守り</span><span class="count">×2</span></li>
+<li><span class="chip chip-draw">疾風</span><span class="count">×1</span></li>
+</ul>
+</article>
+<article class="job-card">
+<h3>盗賊</h3>
+<p class="trait">毎ターン手札+1</p>
+<ul class="deck-list">
+<li><span class="chip chip-attack">打撃</span><span class="count">×3</span></li>
+<li><span class="chip chip-attack">短剣</span><span class="count">×2</span></li>
+<li><span class="chip chip-block">守り</span><span class="count">×2</span></li>
+<li><span class="chip chip-draw">疾風</span><span class="count">×3</span></li>
+</ul>
+</article>
+</div>
+</section>
+<section id="passives">
+<h2><small>Passives</small>祭壇のパッシブ</h2>
+<div class="passive-grid">
+<div class="passive-tile"><p class="adj">剛力の</p><p class="desc">POW+1</p></div>
+<div class="passive-tile"><p class="adj">鋼の</p><p class="desc">防御カード+2</p></div>
+<div class="passive-tile"><p class="adj">烈火の</p><p class="desc">攻撃カード+1</p></div>
+<div class="passive-tile"><p class="adj">疾風の</p><p class="desc">エネルギー+1</p></div>
+<div class="passive-tile"><p class="adj">明晰の</p><p class="desc">毎ターン手札+1</p></div>
+<div class="passive-tile"><p class="adj">星屑の</p><p class="desc">POW+2</p></div>
+</div>
+</section>
+<section id="spirit">
+<h2><small>Spirits</small>スピリット</h2>
+<div class="spirit-box">出現率 <span class="num">50%</span>　／　攻撃カード：<span class="num">POW+5</span></div>
+</section>
+<footer class="foot">config.gd から自動生成</footer>
+</div>
+
+</body>
+</html>

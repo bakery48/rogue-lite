@@ -11,6 +11,8 @@ extends Control
 const Cfg = preload("res://config.gd")
 
 const CSV_HEADER := "run_id,seed,性格,職業,名前,最終形容詞,最終表示名,到達層,結末,最終HP,最終POW,スピリット出現回数,撤退時の残HP割合,迷ったか"
+const CARD_HTML_TITLE := "カード大全"
+const CARD_HTML_FILENAME := "card_reference.html"
 
 # --- UI ノード ---
 var header_label: Label
@@ -76,6 +78,12 @@ func _build_ui() -> void:
 		b.text = "デバッグ：%s" % label
 		b.pressed.connect(func(): _show_debug_popup(label, gen.call()))
 		debug_row.add_child(b)
+
+	var html_btn := Button.new()
+	html_btn.text = "カード一覧をHTMLで保存"
+	html_btn.pressed.connect(_export_cards_html)
+	debug_row.add_child(html_btn)
+
 	vbox.add_child(HSeparator.new())
 
 	# 画面上部に常に表示名を出す（形容詞の上書きが見える）
@@ -189,6 +197,218 @@ func _debug_cards_text() -> String:
 	for p in Cfg.PASSIVES:
 		text += "  %s　%s\n" % [p.adjective, p.desc]
 	return text
+
+
+# ---------------------------------------------------------------------------
+# カード一覧のHTML化（ウェブブラウズ用）
+# ---------------------------------------------------------------------------
+
+func _card_type_label(t: String) -> String:
+	match t:
+		"attack": return "攻撃"
+		"block":  return "防御"
+		"draw":   return "ドロー"
+	return t
+
+
+func _card_effect_text(c: Dictionary) -> String:
+	match c.type:
+		"attack": return "POW+%d" % c.value
+		"block":  return str(c.value)
+		"draw":   return "%d枚" % c.value
+	return ""
+
+
+func _count_deck(deck: Array) -> Dictionary:
+	# 挿入順を保ったまま枚数を数える（Godot 4のDictionaryは挿入順を維持）
+	var counts := {}
+	for cn in deck:
+		counts[cn] = counts.get(cn, 0) + 1
+	return counts
+
+
+func _cards_html_style() -> String:
+	return """
+:root {
+	--bg: #ECEEE4;
+	--surface: #F7F8F2;
+	--surface-alt: #F0F1E8;
+	--ink: #21261B;
+	--ink-soft: #5B6350;
+	--line: #D6D9C8;
+	--accent: #7A4A9E;
+	--attack: #B23A2E;
+	--block: #2E5F8A;
+	--draw: #2E8A6E;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #14170F;
+		--surface: #1B1F15;
+		--surface-alt: #20241A;
+		--ink: #E7E9DC;
+		--ink-soft: #A3AA93;
+		--line: #333A28;
+		--accent: #C298E8;
+		--attack: #E27568;
+		--block: #79B0E0;
+		--draw: #74CDA3;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #14170F;
+	--surface: #1B1F15;
+	--surface-alt: #20241A;
+	--ink: #E7E9DC;
+	--ink-soft: #A3AA93;
+	--line: #333A28;
+	--accent: #C298E8;
+	--attack: #E27568;
+	--block: #79B0E0;
+	--draw: #74CDA3;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--ink);
+	font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+	line-height: 1.7;
+}
+.page { max-width: 880px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+.masthead { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1.5rem; }
+.eyebrow { margin: 0; font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+h1 { margin: 0; font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif; font-size: clamp(2rem, 5vw, 2.75rem); font-weight: 600; text-wrap: balance; }
+.lede { margin: 0; color: var(--ink-soft); font-size: .95rem; }
+.num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", monospace; }
+nav.toc {
+	position: sticky; top: 0; z-index: 5;
+	display: flex; gap: 1.25rem; flex-wrap: wrap;
+	padding: .75rem 0; margin: 0 0 2.5rem;
+	border-bottom: 1px solid var(--line);
+	background: color-mix(in srgb, var(--bg) 88%, transparent);
+	backdrop-filter: blur(6px);
+}
+nav.toc a { color: var(--ink-soft); text-decoration: none; font-size: .85rem; border-bottom: 1px solid transparent; padding-bottom: .15rem; transition: color .15s, border-color .15s; }
+nav.toc a:hover { color: var(--accent); border-color: var(--accent); }
+nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+section { margin-bottom: 3rem; scroll-margin-top: 4rem; }
+section h2 { display: flex; flex-direction: column; gap: .2rem; font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif; font-size: 1.5rem; font-weight: 600; margin: 0 0 .5rem; padding-left: .9rem; border-left: 3px solid var(--accent); }
+section h2 small { font-family: ui-monospace, "SF Mono", monospace; font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+.note { margin: .25rem 0 1rem; color: var(--ink-soft); font-size: .85rem; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; min-width: 480px; background: var(--surface); }
+thead th { position: sticky; top: 0; background: var(--surface-alt); text-align: left; font-size: .78rem; letter-spacing: .04em; color: var(--ink-soft); font-weight: 600; padding: .65rem .9rem; border-bottom: 1px solid var(--line); }
+tbody td { padding: .6rem .9rem; border-bottom: 1px solid var(--line); font-size: .92rem; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: var(--surface-alt); }
+.chip { display: inline-block; padding: .15rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 600; letter-spacing: .02em; }
+.chip-attack { color: var(--attack); background: color-mix(in srgb, var(--attack) 16%, transparent); }
+.chip-block { color: var(--block); background: color-mix(in srgb, var(--block) 16%, transparent); }
+.chip-draw { color: var(--draw); background: color-mix(in srgb, var(--draw) 16%, transparent); }
+.job-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+.job-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: .6rem; }
+.job-card h3 { margin: 0; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1.15rem; }
+.job-card .trait { margin: 0; font-size: .82rem; color: var(--accent); font-weight: 600; }
+.deck-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
+.deck-list li { display: inline-flex; align-items: center; gap: .3rem; background: var(--surface-alt); border: 1px solid var(--line); border-radius: 8px; padding: .25rem .55rem; font-size: .82rem; }
+.deck-list .count { color: var(--ink-soft); }
+.passive-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .9rem; }
+.passive-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }
+.passive-tile .adj { margin: 0 0 .25rem; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1.05rem; }
+.passive-tile .desc { margin: 0; color: var(--ink-soft); font-size: .85rem; }
+.spirit-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem; font-size: .92rem; }
+.foot { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: .78rem; letter-spacing: .02em; }
+@media (prefers-reduced-motion: reduce) {
+	nav.toc a { transition: none; }
+}
+"""
+
+
+func _cards_html_body() -> String:
+	var body := "<div class=\"page\">\n"
+
+	body += "<header class=\"masthead\">\n"
+	body += "<p class=\"eyebrow\">Rogue-lite Prototype ・ Card Reference</p>\n"
+	body += "<h1>%s</h1>\n" % CARD_HTML_TITLE
+	body += ("<p class=\"lede\">カード <span class=\"num\">%d</span> 種　・　職業 <span class=\"num\">%d</span>　" +
+		"・　パッシブ <span class=\"num\">%d</span> 種　｜　毎ターン エネルギー <span class=\"num\">%d</span>" +
+		"・手札 <span class=\"num\">%d</span> 枚（職業/パッシブで加算）</p>\n") % [
+		Cfg.CARDS.size(), Cfg.JOBS.size(), Cfg.PASSIVES.size(), Cfg.ENERGY_PER_TURN, Cfg.HAND_SIZE]
+	body += "</header>\n"
+
+	body += "<nav class=\"toc\">\n"
+	body += "<a href=\"#cards\">基本カード</a><a href=\"#jobs\">職業デッキ</a>"
+	body += "<a href=\"#passives\">パッシブ</a><a href=\"#spirit\">スピリット</a>\n"
+	body += "</nav>\n"
+
+	# --- 基本カード ---
+	body += "<section id=\"cards\">\n<h2><small>Cards</small>基本カード</h2>\n"
+	body += "<p class=\"note\">ダメージ = POW + 表の値（+ 攻撃パッシブ）　／　防御 = 表の値（+ 防御パッシブ）</p>\n"
+	body += "<div class=\"table-wrap\">\n<table>\n"
+	body += "<thead><tr><th>カード</th><th>コスト</th><th>種別</th><th>効果</th></tr></thead>\n<tbody>\n"
+	for cn in Cfg.CARDS:
+		var c = Cfg.CARDS[cn]
+		body += "<tr><td>%s</td><td class=\"num\">%d</td><td><span class=\"chip chip-%s\">%s</span></td><td class=\"num\">%s</td></tr>\n" % [
+			cn, c.cost, c.type, _card_type_label(c.type), _card_effect_text(c)]
+	body += "</tbody>\n</table>\n</div>\n</section>\n"
+
+	# --- 職業別 初期デッキ ---
+	body += "<section id=\"jobs\">\n<h2><small>Classes</small>職業別 初期デッキ</h2>\n<div class=\"job-grid\">\n"
+	for job in Cfg.JOBS:
+		body += "<article class=\"job-card\">\n<h3>%s</h3>\n<p class=\"trait\">%s</p>\n<ul class=\"deck-list\">\n" % [
+			job.name, job.trait]
+		var counts = _count_deck(job.deck)
+		for cn in counts:
+			var t = Cfg.CARDS[cn].type if Cfg.CARDS.has(cn) else "draw"
+			body += "<li><span class=\"chip chip-%s\">%s</span><span class=\"count\">×%d</span></li>\n" % [
+				t, cn, counts[cn]]
+		body += "</ul>\n</article>\n"
+	body += "</div>\n</section>\n"
+
+	# --- パッシブ ---
+	body += "<section id=\"passives\">\n<h2><small>Passives</small>祭壇のパッシブ</h2>\n<div class=\"passive-grid\">\n"
+	for p in Cfg.PASSIVES:
+		body += "<div class=\"passive-tile\"><p class=\"adj\">%s</p><p class=\"desc\">%s</p></div>\n" % [
+			p.adjective, p.desc]
+	body += "</div>\n</section>\n"
+
+	# --- スピリット ---
+	body += "<section id=\"spirit\">\n<h2><small>Spirits</small>スピリット</h2>\n"
+	body += ("<div class=\"spirit-box\">出現率 <span class=\"num\">" + str(int(Cfg.SPIRIT_APPEAR_RATE * 100)) +
+		"%</span>　／　攻撃カード：<span class=\"num\">POW+" + str(Cfg.SPIRIT_CARD_VALUE) + "</span></div>\n")
+	body += "</section>\n"
+
+	body += "<footer class=\"foot\">config.gd から自動生成</footer>\n"
+	body += "</div>\n"
+	return body
+
+
+func build_cards_html_fragment() -> String:
+	# Artifact公開用：<!doctype>/<html>/<head>/<body>タグなしの中身のみ。
+	return "<title>%s</title>\n<style>\n%s\n</style>\n%s" % [
+		CARD_HTML_TITLE, _cards_html_style(), _cards_html_body()]
+
+
+func build_cards_html_standalone() -> String:
+	# ブラウザで直接開ける単独ファイル用（doctype/head/body込み）。
+	return ("<!doctype html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n" +
+		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
+		"<title>%s</title>\n<style>\n%s\n</style>\n</head>\n<body>\n%s\n</body>\n</html>\n") % [
+		CARD_HTML_TITLE, _cards_html_style(), _cards_html_body()]
+
+
+func _export_cards_html() -> void:
+	var html = build_cards_html_standalone()
+	var path = "user://%s" % CARD_HTML_FILENAME
+	var f = FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		log_line("  ✗ HTML書き出しに失敗しました（エラー %d）" % FileAccess.get_open_error())
+		return
+	f.store_string(html)
+	f.close()
+	log_line("  → カード一覧をHTMLで保存しました：%s" % ProjectSettings.globalize_path(path))
 
 
 func update_header(adv: Dictionary) -> void:
