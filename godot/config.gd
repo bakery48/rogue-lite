@@ -82,30 +82,32 @@ const JOBS := [
 ]
 
 # ---- 性格 ----
-# enchant_choices … 祭壇で提示されるパッシブの数
 # retreat_needs_half_hp … 撤退時HPが半分以下だと記録失敗
 #   ※ fail_damage_bonus / reroll_on_fail / pow_gain_interval はダイス時代の名残で現在未使用。
 const PERSONALITIES := [
 	{"name": "シャイな",       "hp_bonus": 0, "pow_bonus": 1,
-	 "enchant_choices": 2, "pow_gain_interval": 1,
+	 "pow_gain_interval": 1,
 	 "fail_damage_bonus": 0, "reroll_on_fail": false,
 	 "retreat_needs_half_hp": false},
 	{"name": "目立ちたがりな", "hp_bonus": 0, "pow_bonus": 0,
-	 "enchant_choices": 4, "pow_gain_interval": 1,
+	 "pow_gain_interval": 1,
 	 "fail_damage_bonus": 1, "reroll_on_fail": false,
 	 "retreat_needs_half_hp": false},
 	{"name": "慎重な",         "hp_bonus": 8, "pow_bonus": 0,
-	 "enchant_choices": 3, "pow_gain_interval": 2,
+	 "pow_gain_interval": 2,
 	 "fail_damage_bonus": 0, "reroll_on_fail": false,
 	 "retreat_needs_half_hp": false},
 	{"name": "無謀な",         "hp_bonus": 0, "pow_bonus": 0,
-	 "enchant_choices": 3, "pow_gain_interval": 1,
+	 "pow_gain_interval": 1,
 	 "fail_damage_bonus": 0, "reroll_on_fail": true,
 	 "retreat_needs_half_hp": true},
 ]
 
-# ---- パッシブ（祭壇で獲得・B3） ----
-# 効果は field/amount で累積。通り名(adjective)は最新1つだけが表示名に乗る。
+# ---- 刻印（戦闘報酬パッシブ） ----
+# 戦闘勝利のたびに低確率でドロップし、その場で即時発動する（選択なし）。
+# カード名は "{adjective}刻印"。効果は field/amount で累積。
+# 通り名(adjective)は最新1つだけが表示名に乗る。
+const PASSIVE_DROP_RATE := 0.15   # 戦闘勝利ごとのドロップ確率
 const PASSIVES := [
 	{"adjective": "剛力の", "field": "pow",    "amount": 1, "desc": "POW+1"},
 	{"adjective": "鋼の",   "field": "block",  "amount": 2, "desc": "防御カード+2"},

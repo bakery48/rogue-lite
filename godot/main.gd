@@ -193,9 +193,10 @@ func _debug_cards_text() -> String:
 	for job in Cfg.JOBS:
 		text += "  %s（特性：%s）\n    %s\n" % [job.name, job.trait, ", ".join(job.deck)]
 
-	text += "\n[b]パッシブ（祭壇）[/b]\n"
+	text += "\n[b]刻印（戦闘報酬・低確率ドロップ、即時使用）[/b]\n"
+	text += "  出現率 %d%%（戦闘勝利のたび）\n" % int(Cfg.PASSIVE_DROP_RATE * 100)
 	for p in Cfg.PASSIVES:
-		text += "  %s　%s\n" % [p.adjective, p.desc]
+		text += "  %s刻印　%s\n" % [p.adjective, p.desc]
 	return text
 
 
@@ -392,10 +393,13 @@ func _cards_html_body() -> String:
 		body += "</ul>\n</article>\n"
 	body += "</div>\n</section>\n"
 
-	# --- パッシブ ---
-	body += "<section id=\"passives\">\n<h2><small>Passives</small>祭壇のパッシブ</h2>\n<div class=\"passive-grid\">\n"
+	# --- 刻印（戦闘報酬パッシブ） ---
+	body += "<section id=\"passives\">\n<h2><small>Passives</small>刻印（戦闘報酬）</h2>\n"
+	body += ("<p class=\"note\">戦闘勝利のたび、低確率（<span class=\"num\">" +
+		str(int(Cfg.PASSIVE_DROP_RATE * 100)) + "%</span>）で1枚ドロップし、その場で即時発動する</p>\n")
+	body += "<div class=\"passive-grid\">\n"
 	for p in Cfg.PASSIVES:
-		body += "<div class=\"passive-tile\"><p class=\"adj\">%s</p><p class=\"desc\">%s</p></div>\n" % [
+		body += "<div class=\"passive-tile\"><p class=\"adj\">%s刻印</p><p class=\"desc\">%s</p></div>\n" % [
 			p.adjective, p.desc]
 	body += "</div>\n</section>\n"
 
@@ -686,6 +690,7 @@ func run_layer_map(adv: Dictionary, layer_num: int) -> bool:
 			log_line("\n【%d/%d】ボス出現：%s" % [step, last, boss.name])
 			if not await resolve_battle(adv, boss):
 				return false
+			_maybe_drop_passive(adv)
 		else:
 			# 分岐：1〜3個の行き先から選ぶ
 			var nodes = _generate_nodes()
@@ -700,8 +705,8 @@ func run_layer_map(adv: Dictionary, layer_num: int) -> bool:
 
 
 func _generate_nodes() -> Array:
-	# 4種から1〜3個を重複なしで提示（1個なら強制、3個なら選択の幅が広い）。
-	var types = ["battle", "rest", "altar", "explore"]
+	# 3種から1〜3個を重複なしで提示（1個なら強制、3個なら選択の幅が広い）。
+	var types = ["battle", "rest", "explore"]
 	types.shuffle()
 	var count = randi_range(1, 3)
 	return types.slice(0, count)
@@ -711,7 +716,6 @@ func _node_label(t: String) -> String:
 	match t:
 		"battle":  return "戦闘（雑魚と戦う）"
 		"rest":    return "休息（HP+%d）" % Cfg.REST_HEAL
-		"altar":   return "祭壇（パッシブ獲得）"
 		"explore": return "探索（スピリットを探す）"
 	return t
 
@@ -721,14 +725,15 @@ func _resolve_node(adv: Dictionary, t: String, layer_num: int) -> bool:
 	match t:
 		"battle":
 			var enemy = _make_minor_enemy(layer_num)
-			return await resolve_battle(adv, enemy)
+			var won = await resolve_battle(adv, enemy)
+			if not won:
+				return false
+			_maybe_drop_passive(adv)
 		"rest":
 			var before = adv.hp
 			adv.hp = min(adv.hp + Cfg.REST_HEAL, adv.max_hp)
 			log_line("  休息した。HP %d → %d" % [before, adv.hp])
 			update_header(adv)
-		"altar":
-			await choose_passive(adv)
 		"explore":
 			_find_spirit_card(adv, layer_num)
 	return true
@@ -743,31 +748,27 @@ func _make_minor_enemy(layer_num: int) -> Dictionary:
 
 
 # ---------------------------------------------------------------------------
-# 祭壇：パッシブ獲得（B3）
+# 刻印：戦闘報酬パッシブ（低確率ドロップ・即時使用）
 # ---------------------------------------------------------------------------
 
-func choose_passive(adv: Dictionary) -> void:
-	var n = min(adv.personality.enchant_choices, Cfg.PASSIVES.size())
-	var pool = Cfg.PASSIVES.duplicate()
-	pool.shuffle()
-	var options = pool.slice(0, n)
+func _maybe_drop_passive(adv: Dictionary) -> void:
+	# 戦闘勝利のたびに低確率で「◯◯の刻印」が手に入り、その場で即発動する。
+	if randf() >= Cfg.PASSIVE_DROP_RATE:
+		return
+	var p = Cfg.PASSIVES[randi() % Cfg.PASSIVES.size()]
+	var stamp_name = "%s刻印" % p.adjective
 
-	log_line("  --- 祭壇：パッシブ選択（%d択） ---" % n)
-	var labels := []
-	for e in options:
-		labels.append("%s（%s）" % [e.adjective, e.desc])
-	var idx = await present_choices("祭壇：パッシブを選ぶ", labels)
-	var chosen = options[idx]
+	log_line("\n  ★ 戦利品：《%s》を手に入れた！ 即座に発動した（%s）" % [stamp_name, p.desc])
 
 	# 通り名（形容詞）は常に最新1つで上書き。効果は field ごとに累積。
-	adv.adjective = chosen.adjective
-	match chosen.field:
-		"pow":    adv.pow += chosen.amount
-		"block":  adv.block_bonus += chosen.amount
-		"attack": adv.attack_bonus += chosen.amount
-		"energy": adv.energy_bonus += chosen.amount
-		"draw":   adv.draw_bonus += chosen.amount
-	log_line("  → %s（%s）" % [display_name(adv), chosen.desc])
+	adv.adjective = p.adjective
+	match p.field:
+		"pow":    adv.pow += p.amount
+		"block":  adv.block_bonus += p.amount
+		"attack": adv.attack_bonus += p.amount
+		"energy": adv.energy_bonus += p.amount
+		"draw":   adv.draw_bonus += p.amount
+	log_line("  → %s" % display_name(adv))
 	update_header(adv)
 
 
@@ -867,7 +868,7 @@ func run_game() -> void:
 		if try_spirit_appearance(adv, layer_num):
 			spirit_appearances += 1
 
-		# b. 7アクションの分岐マップ（戦闘/休息/祭壇/探索 → 最後はボス）
+		# b. 7アクションの分岐マップ（戦闘/休息/探索 → 最後はボス。刻印は戦闘勝利時の低確率ドロップ）
 		var survived = await run_layer_map(adv, layer_num)
 		update_header(adv)
 		if not survived:
