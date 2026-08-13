@@ -20,12 +20,12 @@ const ENERGY_PER_TURN := 3        # 毎ターンのエネルギー（職業/パ�
 const HAND_SIZE := 5              # 毎ターン引く手札の枚数（職業/パッシブで増える）
 
 # カード定義。
-#   type "attack" … ダメージ = POW + value (+ 攻撃パッシブ)
+#   type "attack" … ダメージ = POW×mult(省略時1.0) + value (+ 攻撃パッシブ)
 #   type "block"  … 防御 = value (+ 防御パッシブ)
 #   type "draw"   … value 枚引く
 const CARDS := {
-	"打撃": {"cost": 1, "type": "attack", "value": 2},
-	"強打": {"cost": 2, "type": "attack", "value": 5},
+	"攻撃":   {"cost": 1, "type": "attack", "value": 0, "mult": 1.0},   # ダメージ = POW
+	"強攻撃": {"cost": 2, "type": "attack", "value": 0, "mult": 1.5},   # ダメージ = POW×1.5
 	"守り": {"cost": 1, "type": "block",  "value": 4},
 	"大盾": {"cost": 2, "type": "block",  "value": 8},
 	"疾風": {"cost": 0, "type": "draw",   "value": 1},
@@ -70,15 +70,15 @@ const JOBS := [
 	{"name": "戦士", "hp_mod": 5, "pow_mod": 0,
 	 "block_bonus": 2, "attack_bonus": 0, "draw_bonus": 0, "energy_bonus": 0,
 	 "trait": "防御カード+2", "deck": [
-		"打撃", "打撃", "打撃", "打撃", "強打", "強打", "守り", "守り", "大盾", "大盾"]},
+		"攻撃", "攻撃", "攻撃", "攻撃", "強攻撃", "強攻撃", "守り", "守り", "大盾", "大盾"]},
 	{"name": "魔法使い", "hp_mod": -5, "pow_mod": 1,
 	 "block_bonus": 0, "attack_bonus": 1, "draw_bonus": 0, "energy_bonus": 0,
 	 "trait": "攻撃カード+1", "deck": [
-		"打撃", "打撃", "打撃", "魔弾", "魔弾", "強打", "集中", "守り", "守り", "疾風"]},
+		"攻撃", "攻撃", "攻撃", "魔弾", "魔弾", "強攻撃", "集中", "守り", "守り", "疾風"]},
 	{"name": "盗賊", "hp_mod": 0, "pow_mod": 0,
 	 "block_bonus": 0, "attack_bonus": 0, "draw_bonus": 1, "energy_bonus": 0,
 	 "trait": "毎ターン手札+1", "deck": [
-		"打撃", "打撃", "打撃", "短剣", "短剣", "守り", "守り", "疾風", "疾風", "疾風"]},
+		"攻撃", "攻撃", "攻撃", "短剣", "短剣", "守り", "守り", "疾風", "疾風", "疾風"]},
 ]
 
 # ---- 性格 ----

@@ -184,7 +184,7 @@ func _debug_cards_text() -> String:
 		var c = Cfg.CARDS[cn]
 		var desc := ""
 		match c.type:
-			"attack": desc = "攻撃：POW+%d" % c.value
+			"attack": desc = "攻撃：%s" % _attack_formula_text(c)
 			"block":  desc = "防御：+%d" % c.value
 			"draw":   desc = "ドロー：%d枚" % c.value
 		text += "  %s　cost %d　%s\n" % [cn, c.cost, desc]
@@ -213,10 +213,35 @@ func _card_type_label(t: String) -> String:
 
 func _card_effect_text(c: Dictionary) -> String:
 	match c.type:
-		"attack": return "POW+%d" % c.value
+		"attack": return _attack_formula_text(c)
 		"block":  return str(c.value)
 		"draw":   return "%d枚" % c.value
 	return ""
+
+
+# 攻撃カードの計算式（数値ではなく式として表示。参照系で使う）
+func _attack_formula_text(c: Dictionary) -> String:
+	var mult: float = c.get("mult", 1.0)
+	var parts := []
+	if mult == 1.0:
+		parts.append("POW")
+	else:
+		parts.append("POW×%s" % _fmt_mult(mult))
+	if int(c.value) != 0:
+		parts.append("+%d" % int(c.value))
+	return "".join(parts)
+
+
+func _fmt_mult(mult: float) -> String:
+	if mult == floor(mult):
+		return str(int(mult))
+	return str(mult)
+
+
+# 攻撃カードの実ダメージ（POW×mult + value + attack_bonus、四捨五入）
+func _card_damage(adv: Dictionary, c: Dictionary) -> int:
+	var mult: float = c.get("mult", 1.0)
+	return int(round(adv.pow * mult)) + int(c.value) + adv.attack_bonus
 
 
 func _count_deck(deck: Array) -> Dictionary:
@@ -573,7 +598,7 @@ func resolve_battle(adv: Dictionary, enemy: Dictionary) -> bool:
 			hand.remove_at(idx)
 			match c.type:
 				"attack":
-					var dmg = adv.pow + c.value + adv.attack_bonus
+					var dmg = _card_damage(adv, c)
 					enemy.hp -= dmg
 					log_line("  ▶ %s：%d ダメージ（敵HP %d）" % [cn, dmg, max(enemy.hp, 0)])
 				"block":
@@ -625,7 +650,7 @@ func _card_label(adv: Dictionary, card_name: String) -> String:
 	var desc := ""
 	match c.type:
 		"attack":
-			desc = "攻撃 %d" % (adv.pow + c.value + adv.attack_bonus)
+			desc = "攻撃 %d" % _card_damage(adv, c)
 		"block":
 			desc = "防御 %d" % (c.value + adv.block_bonus)
 		"draw":
