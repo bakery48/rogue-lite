@@ -18,6 +18,7 @@ var combat_label: Label
 var log_label: RichTextLabel
 var prompt_label: Label
 var choice_box: HBoxContainer
+var debug_dialog: AcceptDialog = null
 
 # --- 状態 ---
 var graveyard: Dictionary = {}
@@ -61,6 +62,22 @@ func _build_ui() -> void:
 	var vbox := VBoxContainer.new()
 	margin.add_child(vbox)
 
+	# デバッグ用：名前/敵/カードの一覧をいつでも確認できるボタン（ゲーム進行とは独立）
+	var debug_row := HBoxContainer.new()
+	vbox.add_child(debug_row)
+	for spec in [
+		["名前一覧", _debug_names_text],
+		["敵一覧", _debug_enemies_text],
+		["カード一覧", _debug_cards_text],
+	]:
+		var label: String = spec[0]
+		var gen: Callable = spec[1]
+		var b := Button.new()
+		b.text = "デバッグ：%s" % label
+		b.pressed.connect(func(): _show_debug_popup(label, gen.call()))
+		debug_row.add_child(b)
+	vbox.add_child(HSeparator.new())
+
 	# 画面上部に常に表示名を出す（形容詞の上書きが見える）
 	header_label = Label.new()
 	header_label.add_theme_font_size_override("font_size", 22)
@@ -89,6 +106,89 @@ func _build_ui() -> void:
 
 func log_line(text: String) -> void:
 	log_label.append_text(text + "\n")
+
+
+# ---------------------------------------------------------------------------
+# デバッグ一覧（名前 / 敵 / カード）
+# ---------------------------------------------------------------------------
+
+func _show_debug_popup(title: String, bbcode_text: String) -> void:
+	# 前のデバッグダイアログが開いたままだと exclusive window 同士が衝突するので先に閉じる
+	# queue_free() はフレーム末まで実体が残るため、即時 hide() してから解放する
+	if debug_dialog != null and is_instance_valid(debug_dialog):
+		debug_dialog.hide()
+		debug_dialog.queue_free()
+		debug_dialog = null
+
+	var dialog := AcceptDialog.new()
+	dialog.title = title
+	dialog.size = Vector2i(560, 640)
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(520, 560)
+	dialog.add_child(scroll)
+
+	var rtl := RichTextLabel.new()
+	rtl.bbcode_enabled = true
+	rtl.fit_content = true
+	rtl.custom_minimum_size = Vector2(500, 0)
+	rtl.text = bbcode_text
+	scroll.add_child(rtl)
+
+	add_child(dialog)
+	debug_dialog = dialog
+	dialog.confirmed.connect(func(): dialog.queue_free())
+	dialog.canceled.connect(func(): dialog.queue_free())
+	dialog.tree_exiting.connect(func():
+		if debug_dialog == dialog:
+			debug_dialog = null)
+	dialog.popup_centered()
+
+
+func _debug_names_text() -> String:
+	var text = "[b]人名候補：全%d種[/b]\n（「名前を選ぶ」で毎回4件がランダム抽出される）\n\n" % Cfg.NAMES.size()
+	text += ", ".join(Cfg.NAMES)
+	return text
+
+
+func _debug_enemies_text() -> String:
+	var text = "[b]層のボス（各層の最終アクション）[/b]\n"
+	for layer_num in Cfg.LAYER_ENEMIES:
+		var e = Cfg.LAYER_ENEMIES[layer_num]
+		text += "  第%d層：%s　HP %d　攻撃 %s\n" % [
+			layer_num, e.name, e.hp, str(e.attacks)]
+
+	text += "\n[b]雑魚（戦闘ノード）[/b]\n"
+	text += "  HP = 基礎 + 層×%d　攻撃 = 基礎 + (層-1)×%d\n" % [
+		Cfg.MINOR_HP_PER_LAYER, Cfg.MINOR_ATK_PER_LAYER]
+	for arch in Cfg.MINOR_ARCHETYPES:
+		text += "  %s　基礎HP %d　基礎攻撃 %d\n" % [arch.name, arch.hp, arch.atk]
+
+	text += "\n[b]スピリット（探索・加勢）[/b]\n"
+	text += "  出現率 %d%%　攻撃カード：POW+%d\n" % [
+		int(Cfg.SPIRIT_APPEAR_RATE * 100), Cfg.SPIRIT_CARD_VALUE]
+	return text
+
+
+func _debug_cards_text() -> String:
+	var text = "[b]カード定義[/b]\n"
+	for cn in Cfg.CARDS:
+		var c = Cfg.CARDS[cn]
+		var desc := ""
+		match c.type:
+			"attack": desc = "攻撃：POW+%d" % c.value
+			"block":  desc = "防御：+%d" % c.value
+			"draw":   desc = "ドロー：%d枚" % c.value
+		text += "  %s　cost %d　%s\n" % [cn, c.cost, desc]
+
+	text += "\n[b]職業別 初期デッキ[/b]\n"
+	for job in Cfg.JOBS:
+		text += "  %s（特性：%s）\n    %s\n" % [job.name, job.trait, ", ".join(job.deck)]
+
+	text += "\n[b]パッシブ（祭壇）[/b]\n"
+	for p in Cfg.PASSIVES:
+		text += "  %s　%s\n" % [p.adjective, p.desc]
+	return text
 
 
 func update_header(adv: Dictionary) -> void:
